@@ -128,6 +128,31 @@ export function matchParticles(source: any[], target: TargetNode[]): Particle[] 
   for (let i = 0; i < source.length; i++) {
     const p = source[i];
     if (p.tx !== undefined && p.ty !== undefined) {
+      
+      // Calculate Luminance to preserve Source Hue but match Target 3D lighting!
+      const lT = 0.299 * p.tr + 0.587 * p.tg + 0.114 * p.tb;
+      const lS = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+      
+      let targetR = p.r;
+      let targetG = p.g;
+      let targetB = p.b;
+
+      if (lS > 10) {
+         const scale = Math.max(0.15, Math.min(2.5, lT / lS)); 
+         targetR = Math.min(255, p.r * scale);
+         targetG = Math.min(255, p.g * scale);
+         targetB = Math.min(255, p.b * scale);
+      } else {
+         targetR = p.tr * 0.2;
+         targetG = p.tg * 0.2;
+         targetB = p.tb * 0.2;
+      }
+      
+      // Blend 80% Source Color with 20% Target Color for cohesion
+      targetR = (targetR * 0.8) + (p.tr * 0.2);
+      targetG = (targetG * 0.8) + (p.tg * 0.2);
+      targetB = (targetB * 0.8) + (p.tb * 0.2);
+
       result.push({
         x: p.x,
         y: p.y,
@@ -139,9 +164,9 @@ export function matchParticles(source: any[], target: TargetNode[]): Particle[] 
         r: p.r,
         g: p.g,
         b: p.b,
-        tr: p.tr,
-        tg: p.tg,
-        tb: p.tb,
+        tr: targetR,
+        tg: targetG,
+        tb: targetB,
         size: p.size
       });
     }
