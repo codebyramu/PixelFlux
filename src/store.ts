@@ -4,26 +4,32 @@ interface AppState {
   targetImage: HTMLImageElement | null;
   setTargetImage: (img: HTMLImageElement | null) => void;
   
-  sourceImage: HTMLImageElement | HTMLCanvasElement | null;
-  setSourceImage: (img: HTMLImageElement | HTMLCanvasElement | null) => void;
-
+  sourceImage: HTMLImageElement | null;
+  setSourceImage: (img: HTMLImageElement | null) => void;
+  
   sourceMode: 'DRAW' | 'IMAGE';
   setSourceMode: (mode: 'DRAW' | 'IMAGE') => void;
-
+  
   particleDensity: number;
-  setParticleDensity: (d: number) => void;
+  setParticleDensity: (density: number) => void;
+  
+  particleSpeed: number;
+  setParticleSpeed: (speed: number) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
   targetImage: null,
-  setTargetImage: (targetImage) => set({ targetImage }),
-
+  setTargetImage: (img) => set({ targetImage: img }),
+  
   sourceImage: null,
-  setSourceImage: (sourceImage) => set({ sourceImage }),
-
+  setSourceImage: (img) => set({ sourceImage: img }),
+  
   sourceMode: 'DRAW',
-  setSourceMode: (sourceMode) => set({ sourceMode }),
-
-  particleDensity: 1.2,
-  setParticleDensity: (particleDensity) => set({ particleDensity })
+  setSourceMode: (mode) => set({ sourceMode: mode }),
+  
+  particleDensity: 1.0,
+  setParticleDensity: (density) => set({ particleDensity: density }),
+  
+  particleSpeed: 1.0,
+  setParticleSpeed: (speed) => set({ particleSpeed: speed }),
 }));

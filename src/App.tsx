@@ -12,7 +12,8 @@ function App() {
     targetImage, setTargetImage, 
     sourceImage, setSourceImage, 
     sourceMode, setSourceMode, 
-    particleDensity, setParticleDensity 
+    particleDensity, setParticleDensity,
+    particleSpeed, setParticleSpeed
   } = useAppStore();
   
   const [targetData, setTargetData] = useState<{x:number, y:number, r:number, g:number, b:number, a:number, size:number}[]>([]);
@@ -125,6 +126,22 @@ function App() {
               />
               <p className="text-[9px] text-zinc-600 mt-2 leading-tight">Controls point extraction frequency. Affects detail & performance.</p>
             </div>
+            
+            <hr className="border-zinc-800 my-4" />
+            
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] text-zinc-400 flex justify-between items-center font-bold">
+                Particle Speed
+                <span className="bg-zinc-800 px-2 py-0.5 rounded font-mono text-[10px] text-white">{particleSpeed.toFixed(1)}x</span>
+              </label>
+              <input 
+                type="range" min="0.1" max="5.0" step="0.1" 
+                value={particleSpeed} 
+                onChange={e => setParticleSpeed(parseFloat(e.target.value))}
+                className="w-full accent-blue-500 h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer mt-1" 
+              />
+              <p className="text-[9px] text-zinc-600 mt-2 leading-tight">Controls the spring tension and terminal velocity of particles.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -161,7 +178,7 @@ function App() {
           ) : (
             <div className="w-full h-full flex flex-col">
               {sourceMode === 'DRAW' ? (
-                <UnifiedCanvas targetData={targetData} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} />
+                <UnifiedCanvas targetData={targetData} particleSpeed={particleSpeed} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} />
               ) : (
                 <div className="w-full h-full flex flex-col relative">
                   {!sourceImage ? (
@@ -180,8 +197,7 @@ function App() {
                     </div>
                   ) : null}
                   
-                  {/* We always render UnifiedCanvas so the right sidebar is visible even before uploading, but covered by overlay above */}
-                  <UnifiedCanvas targetData={targetData} initialParticles={particles} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} />
+                  <UnifiedCanvas targetData={targetData} initialParticles={particles} particleSpeed={particleSpeed} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} />
                 </div>
               )}
             </div>

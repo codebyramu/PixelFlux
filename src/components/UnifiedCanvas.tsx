@@ -12,11 +12,12 @@ export interface TargetNode {
 interface UnifiedCanvasProps {
   targetData: Omit<TargetNode, "used">[];
   initialParticles?: Particle[];
+  particleSpeed: number;
   width: number;
   height: number;
 }
 
-export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initialParticles, width, height }) => {
+export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initialParticles, particleSpeed, width, height }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [color, setColor] = useState('#ef4444');
   const [brushSize, setBrushSize] = useState(12);
@@ -82,14 +83,57 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   }, [targetData, initialParticles]);
 
   const spawnParticlesBetween = (x1: number, y1: number, x2: number, y2: number) => {
-    if (activeTool === 'eraser') return; 
-
     const dx = x2 - x1;
     const dy = y2 - y1;
     const dist = Math.sqrt(dx*dx + dy*dy);
+    const steps = Math.max(1, Math.floor(dist / (activeTool === 'eraser' ? 5 : Math.max(2, brushSize / 2))));
     
-    const step = Math.max(2, brushSize / 2);
-    const steps = Math.max(1, Math.floor(dist / step));
+    if (activeTool === 'eraser') {
+      const eraseRadiusSq = (brushSize) ** 2;
+      const newLive = [];
+      const targetsToFree: {tx: number, ty: number}[] = [];
+      
+      for (let i = 0; i < liveParticles.current.length; i++) {
+        const p = liveParticles.current[i];
+        let erased = false;
+        
+        for (let s = 0; s <= steps; s++) {
+          const px = x1 + (dx * s) / steps;
+          const py = y1 + (dy * s) / steps;
+          const distSq = (p.x - px)**2 + (p.y - py)**2;
+          if (distSq <= eraseRadiusSq) {
+            erased = true;
+            break;
+          }
+        }
+        
+        if (erased) {
+           targetsToFree.push({ tx: p.tx, ty: p.ty });
+        } else {
+           newLive.push(p);
+        }
+      }
+      
+      liveParticles.current = newLive;
+      
+      if (targetsToFree.length > 0) {
+         const grid = gridRef.current;
+         targetsToFree.forEach(({tx, ty}) => {
+            const cx = Math.floor(tx / gridSize);
+            const cy = Math.floor(ty / gridSize);
+            const cell = grid.get(`${cx},${cy}`);
+            if (cell) {
+               const t = cell.find(t => t.x === tx && t.y === ty);
+               if (t && t.used) {
+                 t.used = false;
+                 usedCountRef.current--;
+               }
+            }
+         });
+         setForceRender(v => v + 1);
+      }
+      return;
+    }
     
     const hex = color.replace('#', '');
     const r = parseInt(hex.substring(0, 2), 16) || 0;
@@ -204,6 +248,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   };
 
   const resetIdleTimer = () => {
+    if (activeTool === 'eraser') return; // Erasers don't have idle bursts
     if (idleTimeout.current) clearTimeout(idleTimeout.current);
     idleTimeout.current = setTimeout(() => {
       if (isDrawing.current && currentStroke.current.length > 0) {
@@ -225,7 +270,11 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     if (coords) {
       currentStroke.current = [coords];
       lastPos.current = coords;
-      resetIdleTimer();
+      if (activeTool === 'eraser') {
+        spawnParticlesBetween(coords.x, coords.y, coords.x, coords.y);
+      } else {
+        resetIdleTimer();
+      }
     }
   };
 
@@ -233,15 +282,22 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     if (!isDrawing.current) return;
     const coords = getCoordinates(e);
     if (coords) {
-      currentStroke.current.push(coords);
-      lastPos.current = coords;
-      resetIdleTimer();
-      
-      if (currentStroke.current.length > 15) {
-        const p1 = currentStroke.current[0];
-        const p2 = currentStroke.current[1];
-        spawnParticlesBetween(p1.x, p1.y, p2.x, p2.y);
-        currentStroke.current.shift(); 
+      if (activeTool === 'eraser') {
+        spawnParticlesBetween(lastPos.current!.x, lastPos.current!.y, coords.x, coords.y);
+        lastPos.current = coords;
+        currentStroke.current.push(coords);
+        if (currentStroke.current.length > 5) currentStroke.current.shift(); // short trail
+      } else {
+        currentStroke.current.push(coords);
+        lastPos.current = coords;
+        resetIdleTimer();
+        
+        if (currentStroke.current.length > 15) {
+          const p1 = currentStroke.current[0];
+          const p2 = currentStroke.current[1];
+          spawnParticlesBetween(p1.x, p1.y, p2.x, p2.y);
+          currentStroke.current.shift(); 
+        }
       }
     }
   };
@@ -252,12 +308,14 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
       lastPos.current = null;
       if (idleTimeout.current) clearTimeout(idleTimeout.current);
       
-      const stroke = currentStroke.current;
-      for (let i = 1; i < stroke.length; i++) {
-        spawnParticlesBetween(stroke[i-1].x, stroke[i-1].y, stroke[i].x, stroke[i].y);
-      }
-      if (stroke.length === 1) {
-        spawnParticlesBetween(stroke[0].x, stroke[0].y, stroke[0].x, stroke[0].y);
+      if (activeTool !== 'eraser') {
+        const stroke = currentStroke.current;
+        for (let i = 1; i < stroke.length; i++) {
+          spawnParticlesBetween(stroke[i-1].x, stroke[i-1].y, stroke[i].x, stroke[i].y);
+        }
+        if (stroke.length === 1) {
+          spawnParticlesBetween(stroke[0].x, stroke[0].y, stroke[0].x, stroke[0].y);
+        }
       }
       
       currentStroke.current = [];
@@ -277,7 +335,8 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
       ctx.fillRect(0, 0, width, height);
       
       const friction = 0.98; 
-      const spring = 0.0001; 
+      const spring = 0.0001 * particleSpeed; 
+      const maxSpeed = 1.0 * particleSpeed; 
 
       const particles = liveParticles.current;
       for (let i = 0; i < particles.length; i++) {
@@ -292,7 +351,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
         p.vx *= friction;
         p.vy *= friction;
         
-        const maxSpeed = 1.0; 
         const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
         if (speed > maxSpeed) {
            p.vx = (p.vx / speed) * maxSpeed;
@@ -313,7 +371,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
         for (let i = 1; i < stroke.length; i++) {
           ctx.lineTo(stroke[i].x, stroke[i].y);
         }
-        ctx.strokeStyle = activeTool === 'eraser' ? '#121214' : color;
+        ctx.strokeStyle = activeTool === 'eraser' ? 'rgba(255, 255, 240, 0.15)' : color;
         ctx.lineWidth = brushSize;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -325,7 +383,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     
     loop();
     return () => cancelAnimationFrame(animationFrame);
-  }, [width, height, color, brushSize, activeTool]);
+  }, [width, height, color, brushSize, activeTool, particleSpeed]);
 
   const presetColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ffffff', '#000000'];
   const remaining = availableTargets.current.length - usedCountRef.current;
@@ -334,7 +392,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   return (
     <div className="flex flex-row w-full h-full items-stretch bg-[#0a0a0a]">
       
-      {/* Canvas Area (Padded inside the workspace) */}
+      {/* Canvas Area */}
       <div className="flex-1 relative p-6 flex flex-col">
         <div className="flex-1 relative border border-zinc-800 bg-[#121214] rounded-lg shadow-2xl overflow-hidden w-full h-full flex flex-col items-center justify-center">
           {isCanvasEmpty && (
@@ -407,8 +465,8 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
             {presetColors.map(c => (
               <button 
                 key={c}
-                onClick={() => setColor(c)}
-                className={`w-8 h-8 rounded-full border-2 transition-transform shadow-md mx-auto ${color === c ? 'scale-110 border-white ring-2 ring-blue-500/50' : 'border-zinc-700 hover:scale-105'}`}
+                onClick={() => { setColor(c); setActiveTool('pen'); }}
+                className={`w-8 h-8 rounded-full border-2 transition-transform shadow-md mx-auto ${color === c && activeTool === 'pen' ? 'scale-110 border-white ring-2 ring-blue-500/50' : 'border-zinc-700 hover:scale-105'}`}
                 style={{ backgroundColor: c }}
                 title={`Use color ${c}`}
               />
@@ -419,7 +477,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
             <input 
               type="color" 
               value={color} 
-              onChange={e => setColor(e.target.value)} 
+              onChange={e => { setColor(e.target.value); setActiveTool('pen'); }} 
               className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0" 
             />
           </div>
