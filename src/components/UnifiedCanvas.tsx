@@ -58,6 +58,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     };
   }, []);
 
+  // Effect 1: Handle Target Data Changes (e.g. Target Image Replaced or Density Slider changed)
   useEffect(() => {
     const targets = targetData.map(t => ({ ...t, used: false }));
     const grid = new Map<string, TargetNode[]>();
@@ -73,7 +74,83 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     
     gridRef.current = grid;
     availableTargets.current = targets;
-    usedCountRef.current = 0; 
+    
+    // RE-MATCH existing live particles to the new target image dynamically!
+    if (liveParticles.current.length > 0 && targets.length > 0) {
+       let newUsedCount = 0;
+       
+       for (let i = 0; i < liveParticles.current.length; i++) {
+          const p = liveParticles.current[i];
+          let bestTarget = null;
+          let minScore = Infinity;
+          
+          // Fast greedy random-sample assignment for real-time slider/image change
+          for (let k = 0; k < 100; k++) {
+             const idx = Math.floor(Math.random() * targets.length);
+             const t = targets[idx];
+             if (t.used) continue;
+             
+             const spaceDist = (p.x - t.x)**2 + (p.y - t.y)**2;
+             const colorDist = (p.r - t.r)**2 + (p.g - t.g)**2 + (p.b - t.b)**2;
+             const score = spaceDist + colorDist * 15.0;
+             if (score < minScore) {
+                minScore = score;
+                bestTarget = t;
+             }
+          }
+          
+          if (!bestTarget) {
+             bestTarget = targets[Math.floor(Math.random() * targets.length)];
+          }
+          
+          if (bestTarget) {
+             if (!bestTarget.used) {
+                bestTarget.used = true;
+                newUsedCount++;
+             }
+             
+             // Apply luminance trick so the old particles keep their color but inherit new 3D shading
+             const lT = 0.299 * bestTarget.r + 0.587 * bestTarget.g + 0.114 * bestTarget.b;
+             const lS = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+             
+             let finalTr = p.r;
+             let finalTg = p.g;
+             let finalTb = p.b;
+             
+             if (lS > 10) {
+                const scale = Math.max(0.15, Math.min(2.5, lT / lS));
+                finalTr = Math.min(255, p.r * scale);
+                finalTg = Math.min(255, p.g * scale);
+                finalTb = Math.min(255, p.b * scale);
+             } else {
+                finalTr = bestTarget.r * 0.2;
+                finalTg = bestTarget.g * 0.2;
+                finalTb = bestTarget.b * 0.2;
+             }
+             
+             // Blend 80% old color with 20% new target color
+             finalTr = (finalTr * 0.8) + (bestTarget.r * 0.2);
+             finalTg = (finalTg * 0.8) + (bestTarget.g * 0.2);
+             finalTb = (finalTb * 0.8) + (bestTarget.b * 0.2);
+             
+             p.tx = bestTarget.x;
+             p.ty = bestTarget.y;
+             p.tr = finalTr;
+             p.tg = finalTg;
+             p.tb = finalTb;
+             
+             // Give a small burst of velocity to wake them up so they fly to the new target
+             const angle = Math.random() * Math.PI * 2;
+             const speed = Math.random() * 4 + 2;
+             p.vx += Math.cos(angle) * speed;
+             p.vy += Math.sin(angle) * speed;
+          }
+       }
+       usedCountRef.current = newUsedCount;
+    } else {
+       usedCountRef.current = 0; 
+    }
+    
     setForceRender(v => v + 1);
   }, [targetData]);
 
@@ -424,7 +501,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           p.x += p.vx;
           p.y += p.vy;
           
-          // Secret Color Interpolation (Invisible magic!)
           if (p.r !== undefined && p.tr !== undefined) {
             p.r += (p.tr - p.r) * 0.02;
             p.g += (p.tg - p.g) * 0.02;
