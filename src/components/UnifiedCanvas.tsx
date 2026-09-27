@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Particle } from '../engine/morphEngine';
-import { Pen, Eraser, Undo2, Redo2, Trash2, Image as ImageIcon, Paintbrush } from 'lucide-react';
+import { Pen, Eraser, Undo2, Redo2, Trash2, Image as ImageIcon, Paintbrush, Pipette } from 'lucide-react';
 import { HexColorPicker } from "react-colorful";
 
 export interface TargetNode {
@@ -36,6 +36,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   const isDrawing = useRef(false);
   const lastPos = useRef<{x: number, y: number} | null>(null);
   const idleTimeout = useRef<NodeJS.Timeout | null>(null);
+  const holdTimerRef = useRef(0);
 
   useEffect(() => {
     const targets = targetData.map(t => ({ ...t, used: false }));
@@ -57,8 +58,8 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
       initialParticles.forEach(p => {
         newLive.push({
           x: p.sx, y: p.sy,
-          vx: (Math.random() - 0.5) * 1.5,
-          vy: (Math.random() - 0.5) * 1.5,
+          vx: 0, 
+          vy: 0,
           tx: p.tx, ty: p.ty,
           size: p.size,
           color: p.color
@@ -75,6 +76,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           }
         }
       });
+      holdTimerRef.current = 90; // Hold at source position for 1.5 seconds (90 frames at 60fps) before exploding!
     }
 
     gridRef.current = grid;
@@ -83,6 +85,21 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     liveParticles.current = newLive;
     setForceRender(v => v + 1);
   }, [targetData, initialParticles]);
+
+  const handleEyedropper = async () => {
+    if ('EyeDropper' in window) {
+      try {
+        const eyeDropper = new (window as any).EyeDropper();
+        const result = await eyeDropper.open();
+        setColor(result.sRGBHex);
+        setActiveTool('pen');
+      } catch (e) {
+        console.log('Eyedropper cancelled');
+      }
+    } else {
+      alert("Your browser doesn't support the Eyedropper API yet!");
+    }
+  };
 
   const spawnParticlesBetween = (x1: number, y1: number, x2: number, y2: number) => {
     const dx = x2 - x1;
@@ -267,7 +284,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   };
 
   const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
-    if (showPicker) setShowPicker(false); // Close color picker on canvas click
+    if (showPicker) setShowPicker(false); 
     isDrawing.current = true;
     const coords = getCoordinates(e);
     if (coords) {
@@ -341,27 +358,48 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
       const spring = 0.0001 * particleSpeed; 
       const maxSpeed = 1.0 * particleSpeed; 
 
+      let isHolding = false;
+      if (holdTimerRef.current > 0) {
+        holdTimerRef.current--;
+        isHolding = true;
+      } else if (holdTimerRef.current === 0) {
+        // Trigger explosion when timer hits 0
+        const particles = liveParticles.current;
+        for (let i = 0; i < particles.length; i++) {
+          const p = particles[i];
+          if (p.vx === 0 && p.vy === 0) {
+            const angle = Math.random() * Math.PI * 2;
+            const speedMagnitude = Math.random() * 8 + 4;
+            p.vx = Math.cos(angle) * speedMagnitude;
+            p.vy = Math.sin(angle) * speedMagnitude;
+          }
+        }
+        holdTimerRef.current = -1; // marked as exploded
+      }
+
       const particles = liveParticles.current;
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         
-        const dx = p.tx - p.x;
-        const dy = p.ty - p.y;
-        
-        p.vx += dx * spring;
-        p.vy += dy * spring;
-        
-        p.vx *= friction;
-        p.vy *= friction;
-        
-        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-        if (speed > maxSpeed) {
-           p.vx = (p.vx / speed) * maxSpeed;
-           p.vy = (p.vy / speed) * maxSpeed;
+        if (!isHolding) {
+          const dx = p.tx - p.x;
+          const dy = p.ty - p.y;
+          
+          p.vx += dx * spring;
+          p.vy += dy * spring;
+          
+          p.vx *= friction;
+          p.vy *= friction;
+          
+          const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+          if (speed > maxSpeed) {
+             p.vx = (p.vx / speed) * maxSpeed;
+             p.vy = (p.vy / speed) * maxSpeed;
+          }
+          
+          p.x += p.vx;
+          p.y += p.vy;
         }
-        
-        p.x += p.vx;
-        p.y += p.vy;
 
         ctx.fillStyle = p.color;
         ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
@@ -395,7 +433,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   return (
     <div className="flex flex-row w-full h-full items-stretch bg-[#0a0a0a]">
       
-      {/* Canvas Area */}
       <div className="flex-1 relative p-6 flex flex-col">
         <div className="flex-1 relative border border-zinc-800 bg-[#121214] rounded-lg shadow-2xl overflow-hidden w-full h-full flex flex-col items-center justify-center">
           {isCanvasEmpty && (
@@ -421,7 +458,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
         </div>
       </div>
 
-      {/* Right Dashboard Tool Panel */}
       <div className="w-[280px] shrink-0 flex flex-col p-6 bg-[#141417] border-l border-zinc-800 h-full overflow-y-auto z-10">
         
         <div className="flex items-center gap-2 mb-6">
@@ -429,7 +465,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Paint Tools</h3>
         </div>
 
-        {/* Tool Selector */}
         <div className="grid grid-cols-2 gap-3 mb-8">
           <button onClick={() => setActiveTool('pen')} className={`flex items-center justify-center py-4 rounded-lg border transition-all ${activeTool === 'pen' ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]' : 'bg-[#1a1a1e] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}>
             <Pen size={18} />
@@ -439,7 +474,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           </button>
         </div>
 
-        {/* Brush Size */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Brush Size</h3>
@@ -455,7 +489,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           />
         </div>
 
-        {/* Colors */}
         <div className="mb-8">
           <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-4">Color</h3>
           <div className="grid grid-cols-4 gap-3 mb-4">
@@ -470,9 +503,9 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
             ))}
           </div>
           
-          <div className="relative">
+          <div className="flex items-center gap-2 relative">
             <div 
-              className="flex items-center justify-between bg-[#1a1a1e] p-3 rounded-lg border border-zinc-800 transition-colors hover:border-zinc-700 cursor-pointer"
+              className="flex-1 flex items-center justify-between bg-[#1a1a1e] p-3 rounded-lg border border-zinc-800 transition-colors hover:border-zinc-700 cursor-pointer"
               onClick={() => setShowPicker(!showPicker)}
             >
               <span className="text-xs text-zinc-300 font-medium">Custom</span>
@@ -481,6 +514,14 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
                 style={{ backgroundColor: color }} 
               />
             </div>
+            
+            <button 
+              onClick={handleEyedropper}
+              className="flex items-center justify-center p-3 h-full rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-blue-400 transition-colors"
+              title="Pick color from screen"
+            >
+              <Pipette size={18} />
+            </button>
             
             {showPicker && (
               <div className="absolute right-0 top-full mt-2 z-50">
@@ -493,7 +534,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           </div>
         </div>
 
-        {/* Actions Row */}
         <div className="grid grid-cols-3 gap-2 mb-8">
           <button className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors">
             <Undo2 size={14} />
@@ -520,7 +560,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
 
         <div className="h-px w-full bg-zinc-800 my-2"></div>
         
-        {/* Footer Stats & Clear */}
         <div className="mt-auto flex flex-col gap-4">
           <div className="text-center">
             <div className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-1.5">Target Pixels Left</div>
