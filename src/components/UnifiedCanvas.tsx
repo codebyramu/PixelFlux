@@ -84,14 +84,18 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           let bestTarget = null;
           let minScore = Infinity;
           
+          const pr = p.r ?? 0;
+          const pg = p.g ?? 0;
+          const pb = p.b ?? 0;
+          
           // Fast greedy random-sample assignment for real-time slider/image change
-          for (let k = 0; k < 100; k++) {
+          for (let k = 0; k < 150; k++) {
              const idx = Math.floor(Math.random() * targets.length);
              const t = targets[idx];
              if (t.used) continue;
              
              const spaceDist = (p.x - t.x)**2 + (p.y - t.y)**2;
-             const colorDist = (p.r - t.r)**2 + (p.g - t.g)**2 + (p.b - t.b)**2;
+             const colorDist = (pr - t.r)**2 + (pg - t.g)**2 + (pb - t.b)**2;
              const score = spaceDist + colorDist * 15.0;
              if (score < minScore) {
                 minScore = score;
@@ -111,17 +115,17 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
              
              // Apply luminance trick so the old particles keep their color but inherit new 3D shading
              const lT = 0.299 * bestTarget.r + 0.587 * bestTarget.g + 0.114 * bestTarget.b;
-             const lS = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+             const lS = 0.299 * pr + 0.587 * pg + 0.114 * pb;
              
-             let finalTr = p.r;
-             let finalTg = p.g;
-             let finalTb = p.b;
+             let finalTr = pr;
+             let finalTg = pg;
+             let finalTb = pb;
              
              if (lS > 10) {
                 const scale = Math.max(0.15, Math.min(2.5, lT / lS));
-                finalTr = Math.min(255, p.r * scale);
-                finalTg = Math.min(255, p.g * scale);
-                finalTb = Math.min(255, p.b * scale);
+                finalTr = Math.min(255, pr * scale);
+                finalTg = Math.min(255, pg * scale);
+                finalTb = Math.min(255, pb * scale);
              } else {
                 finalTr = bestTarget.r * 0.2;
                 finalTg = bestTarget.g * 0.2;
@@ -139,9 +143,9 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
              p.tg = finalTg;
              p.tb = finalTb;
              
-             // Give a small burst of velocity to wake them up so they fly to the new target
+             // Give an explosive burst of velocity to wake them up so they fly to the new target
              const angle = Math.random() * Math.PI * 2;
-             const speed = Math.random() * 4 + 2;
+             const speed = Math.random() * 8 + 4;
              p.vx += Math.cos(angle) * speed;
              p.vy += Math.sin(angle) * speed;
           }
