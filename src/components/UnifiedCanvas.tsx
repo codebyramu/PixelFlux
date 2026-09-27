@@ -16,13 +16,11 @@ interface UnifiedCanvasProps {
   particleSpeed: number;
   width: number;
   height: number;
-  targetPreviewUrl?: string | null;
 }
 
-export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initialParticles, particleSpeed, width, height, targetPreviewUrl }) => {
+export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initialParticles, particleSpeed, width, height }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Convert these UI states to refs for rAF efficiency where possible, but we need React state for the UI re-renders
   const [color, setColor] = useState('#ef4444');
   const colorRef = useRef('#ef4444');
   useEffect(() => { colorRef.current = color; }, [color]);
@@ -54,15 +52,12 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   const idleTimeout = useRef<NodeJS.Timeout | null>(null);
   const holdTimerRef = useRef(0);
 
-  // Unmount cleanup for idle timer
   useEffect(() => {
     return () => {
       if (idleTimeout.current) clearTimeout(idleTimeout.current);
     };
   }, []);
 
-  // Effect 1: Handle Target Data Changes (e.g. Density Slider)
-  // We do NOT clear liveParticles here. We let drawn particles keep flying to their destinations.
   useEffect(() => {
     const targets = targetData.map(t => ({ ...t, used: false }));
     const grid = new Map<string, TargetNode[]>();
@@ -71,7 +66,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
       const t = targets[i];
       const cx = Math.floor(t.x / gridSize);
       const cy = Math.floor(t.y / gridSize);
-      // Bitwise key optimization to reduce string allocation overhead
       const key = ((cx << 16) ^ cy).toString();
       if (!grid.has(key)) grid.set(key, []);
       grid.get(key)!.push(t);
@@ -83,7 +77,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     setForceRender(v => v + 1);
   }, [targetData]);
 
-  // Effect 2: Handle Initial Particles (Source Image Morph)
   useEffect(() => {
     if (initialParticles) {
       const grid = gridRef.current;
@@ -97,7 +90,9 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           vy: 0,
           tx: p.tx, ty: p.ty,
           size: p.size,
-          color: p.color
+          color: p.color,
+          r: p.r, g: p.g, b: p.b,
+          tr: p.tr, tg: p.tg, tb: p.tb
         });
         
         const cx = Math.floor(p.tx / gridSize);
@@ -115,7 +110,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
       
       liveParticles.current = newLive;
       usedCountRef.current = usedCount;
-      holdTimerRef.current = 90; // Hold at source position for 1.5 seconds
+      holdTimerRef.current = 90; 
       setIsCanvasEmptyUI(false);
       setForceRender(v => v + 1);
     }
@@ -137,7 +132,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   };
 
   const spawnParticlesBetween = (x1: number, y1: number, x2: number, y2: number) => {
-    if (availableTargets.current.length === 0) return; // Guard against empty targets (pure white image)
+    if (availableTargets.current.length === 0) return; 
 
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -146,7 +141,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     const steps = dist === 0 ? 0 : Math.max(1, Math.floor(dist / stepSize));
     
     if (activeToolRef.current === 'eraser') {
-      const eraseRadiusSq = (brushSizeRef.current / 2) ** 2; // FIXED: Accurate eraser radius
+      const eraseRadiusSq = (brushSizeRef.current / 2) ** 2;
       const newLive = [];
       const targetsToFree: {tx: number, ty: number}[] = [];
       
@@ -268,14 +263,15 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
             usedCountRef.current++;
           }
           
-          // SOFT DISSOLVE: Pixels gracefully detach with almost zero velocity and let the spring pull them
           liveParticles.current.push({
             x: sx, y: sy,
             vx: (Math.random() - 0.5) * 0.5, 
             vy: (Math.random() - 0.5) * 0.5,
             tx: bestTarget.x, ty: bestTarget.y,
             size: bestTarget.size,
-            color: colorRef.current
+            color: colorRef.current,
+            r: r, g: g, b: b,
+            tr: bestTarget.r, tg: bestTarget.g, tb: bestTarget.b
           });
         }
       }
@@ -288,7 +284,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     const rect = canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
     
-    // Correcting for aspect-square sizing to prevent offset bugs
     const containerAspect = rect.width / rect.height;
     const canvasAspect = canvas.width / canvas.height;
     let renderW = rect.width;
@@ -312,7 +307,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return; // Only left clicks
+    if (e.button !== 0) return; 
     if (showPicker) setShowPicker(false);
     
     const coords = getCoordinates(e);
@@ -341,7 +336,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
         currentStroke.current.push(coords);
         if (currentStroke.current.length > 5) currentStroke.current.shift();
       } else {
-        // Pen Mode - spawn segments immediately during move
         spawnParticlesBetween(lastPos.current.x, lastPos.current.y, coords.x, coords.y);
         currentStroke.current.push(coords);
         lastPos.current = coords;
@@ -381,7 +375,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
     if (!ctx) return;
 
     const loop = () => {
-      // Clear canvas (transparent to show ghost background)
       ctx.clearRect(0, 0, width, height);
       
       const friction = 0.98; 
@@ -430,6 +423,14 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           
           p.x += p.vx;
           p.y += p.vy;
+          
+          // Secret Color Interpolation (Invisible magic!)
+          if (p.r !== undefined && p.tr !== undefined) {
+            p.r += (p.tr - p.r) * 0.02;
+            p.g += (p.tg - p.g) * 0.02;
+            p.b += (p.tb - p.b) * 0.02;
+            p.color = `rgb(${Math.floor(p.r)}, ${Math.floor(p.g)}, ${Math.floor(p.b)})`;
+          }
         }
 
         ctx.fillStyle = p.color;
@@ -468,13 +469,6 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
           className="relative border border-zinc-800 bg-[#121214] rounded-lg shadow-2xl overflow-hidden aspect-square flex flex-col items-center justify-center max-h-full"
           style={{ height: '100%', maxHeight: 'calc(100vh - 120px)' }}
         >
-          {targetPreviewUrl && (
-             <div 
-               className="absolute inset-0 z-0 opacity-[0.05] pointer-events-none bg-center bg-contain bg-no-repeat transition-opacity"
-               style={{ backgroundImage: `url(${targetPreviewUrl})`, margin: '10%' }}
-             />
-          )}
-
           {isCanvasEmptyUI && (
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none opacity-40 z-0">
               <ImageIcon size={48} className="mb-4 text-zinc-500" />

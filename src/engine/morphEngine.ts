@@ -9,6 +9,9 @@ export interface Particle {
   r: number;
   g: number;
   b: number;
+  tr: number;
+  tg: number;
+  tb: number;
   size: number;
 }
 
@@ -109,10 +112,16 @@ export function matchParticles(source: any[], target: TargetNode[]): Particle[] 
       
       p.tx = bestTarget.x;
       p.ty = bestTarget.y;
+      p.tr = bestTarget.r;
+      p.tg = bestTarget.g;
+      p.tb = bestTarget.b;
     } else {
       const backupTarget = targets[Math.floor(Math.random() * targets.length)];
       p.tx = backupTarget.x;
       p.ty = backupTarget.y;
+      p.tr = backupTarget.r;
+      p.tg = backupTarget.g;
+      p.tb = backupTarget.b;
     }
   }
 
@@ -130,6 +139,9 @@ export function matchParticles(source: any[], target: TargetNode[]): Particle[] 
         r: p.r,
         g: p.g,
         b: p.b,
+        tr: p.tr,
+        tg: p.tg,
+        tb: p.tb,
         size: p.size
       });
     }

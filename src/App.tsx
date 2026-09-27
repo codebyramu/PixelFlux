@@ -239,7 +239,7 @@ function App() {
                 particleSpeed={particleSpeed} 
                 width={CANVAS_WIDTH} 
                 height={CANVAS_HEIGHT} 
-                targetPreviewUrl={targetPreviewUrl}
+                
               />
             </div>
           )}
