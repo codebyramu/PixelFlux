@@ -23,12 +23,14 @@ export interface TargetNode {
 }
 
 export function extractParticles(img: HTMLImageElement, density: number, canvasWidth: number, canvasHeight: number): any[] {
+  if (!img.width || !img.height) return [];
+
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   
   const scale = Math.min(canvasWidth / img.width, canvasHeight / img.height) * 0.8;
-  const w = img.width * scale;
-  const h = img.height * scale;
+  const w = Math.floor(img.width * scale);
+  const h = Math.floor(img.height * scale);
   
   canvas.width = w;
   canvas.height = h;
@@ -45,7 +47,7 @@ export function extractParticles(img: HTMLImageElement, density: number, canvasW
 
   for (let y = 0; y < h; y += step) {
     for (let x = 0; x < w; x += step) {
-      const i = (y * Math.floor(w) + x) * 4;
+      const i = (y * w + x) * 4;
       const r = imgData[i];
       const g = imgData[i+1];
       const b = imgData[i+2];
@@ -68,6 +70,8 @@ export function extractParticles(img: HTMLImageElement, density: number, canvasW
 }
 
 export function matchParticles(source: any[], target: TargetNode[]): Particle[] {
+  if (!target.length || !source.length) return [];
+
   const unassigned = [...source];
   const targets = target.map(t => ({ ...t, owner: null as any | null, bestScore: Infinity }));
   
