@@ -39,7 +39,8 @@ export function extractParticles(
       const b = data[idx+2];
       const a = data[idx+3];
       
-      if (a > 50 && (r < 250 || g < 250 || b < 250)) {
+      const isWhite = r > 240 && g > 240 && b > 240;
+      if (a > 50 && !isWhite) {
         const offsetX = (maxWidth - w) / 2;
         const offsetY = (maxHeight - h) / 2;
         particles.push({ x: x + offsetX, y: y + offsetY, r, g, b, a, size: step + 0.5 });
