@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Particle } from '../engine/morphEngine';
-import { Pen, Eraser, Minus, MousePointer2, Undo2, Redo2, Trash2, Image as ImageIcon, Paintbrush } from 'lucide-react';
+import { Pen, Eraser, Undo2, Redo2, Trash2, Image as ImageIcon, Paintbrush } from 'lucide-react';
+import { HexColorPicker } from "react-colorful";
 
 export interface TargetNode {
   x: number; y: number;
@@ -22,6 +23,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   const [color, setColor] = useState('#ef4444');
   const [brushSize, setBrushSize] = useState(12);
   const [activeTool, setActiveTool] = useState<'pen' | 'eraser'>('pen');
+  const [showPicker, setShowPicker] = useState(false);
   const [, setForceRender] = useState(0);
   
   const liveParticles = useRef<any[]>([]);
@@ -248,7 +250,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   };
 
   const resetIdleTimer = () => {
-    if (activeTool === 'eraser') return; // Erasers don't have idle bursts
+    if (activeTool === 'eraser') return;
     if (idleTimeout.current) clearTimeout(idleTimeout.current);
     idleTimeout.current = setTimeout(() => {
       if (isDrawing.current && currentStroke.current.length > 0) {
@@ -265,6 +267,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
   };
 
   const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
+    if (showPicker) setShowPicker(false); // Close color picker on canvas click
     isDrawing.current = true;
     const coords = getCoordinates(e);
     if (coords) {
@@ -286,7 +289,7 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
         spawnParticlesBetween(lastPos.current!.x, lastPos.current!.y, coords.x, coords.y);
         lastPos.current = coords;
         currentStroke.current.push(coords);
-        if (currentStroke.current.length > 5) currentStroke.current.shift(); // short trail
+        if (currentStroke.current.length > 5) currentStroke.current.shift();
       } else {
         currentStroke.current.push(coords);
         lastPos.current = coords;
@@ -427,18 +430,12 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
         </div>
 
         {/* Tool Selector */}
-        <div className="grid grid-cols-4 gap-2 mb-8">
-          <button onClick={() => setActiveTool('pen')} className={`flex items-center justify-center p-3 rounded-lg border transition-all ${activeTool === 'pen' ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]' : 'bg-[#1a1a1e] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}>
-            <Pen size={16} />
+        <div className="grid grid-cols-2 gap-3 mb-8">
+          <button onClick={() => setActiveTool('pen')} className={`flex items-center justify-center py-4 rounded-lg border transition-all ${activeTool === 'pen' ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]' : 'bg-[#1a1a1e] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}>
+            <Pen size={18} />
           </button>
-          <button onClick={() => setActiveTool('eraser')} className={`flex items-center justify-center p-3 rounded-lg border transition-all ${activeTool === 'eraser' ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]' : 'bg-[#1a1a1e] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}>
-            <Eraser size={16} />
-          </button>
-          <button className="flex items-center justify-center p-3 rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-600 cursor-not-allowed">
-            <Minus size={16} />
-          </button>
-          <button className="flex items-center justify-center p-3 rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-600 cursor-not-allowed">
-            <MousePointer2 size={16} />
+          <button onClick={() => setActiveTool('eraser')} className={`flex items-center justify-center py-4 rounded-lg border transition-all ${activeTool === 'eraser' ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]' : 'bg-[#1a1a1e] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}>
+            <Eraser size={18} />
           </button>
         </div>
 
@@ -472,14 +469,27 @@ export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initia
               />
             ))}
           </div>
-          <div className="flex items-center justify-between bg-[#1a1a1e] p-3 rounded-lg border border-zinc-800 transition-colors hover:border-zinc-700">
-            <span className="text-xs text-zinc-300 font-medium">Custom</span>
-            <input 
-              type="color" 
-              value={color} 
-              onChange={e => { setColor(e.target.value); setActiveTool('pen'); }} 
-              className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0" 
-            />
+          
+          <div className="relative">
+            <div 
+              className="flex items-center justify-between bg-[#1a1a1e] p-3 rounded-lg border border-zinc-800 transition-colors hover:border-zinc-700 cursor-pointer"
+              onClick={() => setShowPicker(!showPicker)}
+            >
+              <span className="text-xs text-zinc-300 font-medium">Custom</span>
+              <div 
+                className="w-6 h-6 rounded border border-zinc-600" 
+                style={{ backgroundColor: color }} 
+              />
+            </div>
+            
+            {showPicker && (
+              <div className="absolute right-0 top-full mt-2 z-50">
+                <div className="fixed inset-0" onClick={() => setShowPicker(false)} />
+                <div className="relative z-50 bg-[#1a1a1e] p-3 rounded-lg border border-zinc-700 shadow-2xl overflow-hidden">
+                  <HexColorPicker color={color} onChange={(c) => { setColor(c); setActiveTool('pen'); }} />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
