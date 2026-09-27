@@ -1,0 +1,479 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { Particle } from '../engine/morphEngine';
+import { Pen, Eraser, Minus, MousePointer2, Undo2, Redo2, Trash2, Image as ImageIcon, Paintbrush } from 'lucide-react';
+
+export interface TargetNode {
+  x: number; y: number;
+  r: number; g: number; b: number; a: number;
+  size: number;
+  used: boolean;
+}
+
+interface UnifiedCanvasProps {
+  targetData: Omit<TargetNode, "used">[];
+  initialParticles?: Particle[];
+  width: number;
+  height: number;
+}
+
+export const UnifiedCanvas: React.FC<UnifiedCanvasProps> = ({ targetData, initialParticles, width, height }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [color, setColor] = useState('#ef4444');
+  const [brushSize, setBrushSize] = useState(12);
+  const [activeTool, setActiveTool] = useState<'pen' | 'eraser'>('pen');
+  const [, setForceRender] = useState(0);
+  
+  const liveParticles = useRef<any[]>([]);
+  const availableTargets = useRef<TargetNode[]>([]);
+  const gridRef = useRef<Map<string, TargetNode[]>>(new Map());
+  const usedCountRef = useRef(0);
+  const gridSize = 20;
+  
+  const currentStroke = useRef<{x: number, y: number}[]>([]);
+  const isDrawing = useRef(false);
+  const lastPos = useRef<{x: number, y: number} | null>(null);
+  const idleTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const targets = targetData.map(t => ({ ...t, used: false }));
+    const grid = new Map<string, TargetNode[]>();
+    
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i];
+      const cx = Math.floor(t.x / gridSize);
+      const cy = Math.floor(t.y / gridSize);
+      const key = `${cx},${cy}`;
+      if (!grid.has(key)) grid.set(key, []);
+      grid.get(key)!.push(t);
+    }
+    
+    const newLive: any[] = [];
+    let usedCount = 0;
+
+    if (initialParticles && initialParticles.length > 0) {
+      initialParticles.forEach(p => {
+        newLive.push({
+          x: p.sx, y: p.sy,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: (Math.random() - 0.5) * 1.5,
+          tx: p.tx, ty: p.ty,
+          size: p.size,
+          color: p.color
+        });
+        
+        const cx = Math.floor(p.tx / gridSize);
+        const cy = Math.floor(p.ty / gridSize);
+        const cell = grid.get(`${cx},${cy}`);
+        if (cell) {
+          const t = cell.find(t => t.x === p.tx && t.y === p.ty && !t.used);
+          if (t) {
+            t.used = true;
+            usedCount++;
+          }
+        }
+      });
+    }
+
+    gridRef.current = grid;
+    availableTargets.current = targets;
+    usedCountRef.current = usedCount;
+    liveParticles.current = newLive;
+    setForceRender(v => v + 1);
+  }, [targetData, initialParticles]);
+
+  const spawnParticlesBetween = (x1: number, y1: number, x2: number, y2: number) => {
+    if (activeTool === 'eraser') return; 
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    
+    const step = Math.max(2, brushSize / 2);
+    const steps = Math.max(1, Math.floor(dist / step));
+    
+    const hex = color.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16) || 0;
+    const g = parseInt(hex.substring(2, 4), 16) || 0;
+    const b = parseInt(hex.substring(4, 6), 16) || 0;
+    
+    const grid = gridRef.current;
+    const targets = availableTargets.current;
+    
+    for (let i = 0; i <= steps; i++) {
+      const px = x1 + (dx * i) / steps;
+      const py = y1 + (dy * i) / steps;
+      
+      const numParticlesPerStep = Math.max(1, Math.floor(brushSize / 4));
+      
+      for (let j = 0; j < numParticlesPerStep; j++) {
+        const offsetX = (Math.random() - 0.5) * brushSize;
+        const offsetY = (Math.random() - 0.5) * brushSize;
+        const sx = px + offsetX;
+        const sy = py + offsetY;
+        
+        let bestTarget: TargetNode | null = null;
+        let minScore = Infinity;
+        
+        const cx = Math.floor(sx / gridSize);
+        const cy = Math.floor(sy / gridSize);
+        
+        for (let gdx = -3; gdx <= 3; gdx++) {
+          for (let gdy = -3; gdy <= 3; gdy++) {
+            const cell = grid.get(`${cx + gdx},${cy + gdy}`);
+            if (cell) {
+              for (let c = 0; c < cell.length; c++) {
+                const t = cell[c];
+                if (t.used) continue;
+                
+                const spaceDist = (sx - t.x) ** 2 + (sy - t.y) ** 2;
+                const colorDist = (r - t.r) ** 2 + (g - t.g) ** 2 + (b - t.b) ** 2;
+                const score = spaceDist + colorDist * 15.0; 
+                
+                if (score < minScore) {
+                  minScore = score;
+                  bestTarget = t;
+                }
+              }
+            }
+          }
+        }
+        
+        if (!bestTarget || minScore > 50000) {
+          for (let k = 0; k < 100; k++) {
+            const idx = Math.floor(Math.random() * targets.length);
+            const t = targets[idx];
+            if (t.used) continue;
+            
+            const spaceDist = (sx - t.x) ** 2 + (sy - t.y) ** 2;
+            const colorDist = (r - t.r) ** 2 + (g - t.g) ** 2 + (b - t.b) ** 2;
+            const score = spaceDist + colorDist * 15.0; 
+            
+            if (score < minScore) {
+              minScore = score;
+              bestTarget = t;
+            }
+          }
+        }
+        
+        if (!bestTarget) {
+          bestTarget = targets[Math.floor(Math.random() * targets.length)];
+        }
+        
+        if (bestTarget) {
+          if (!bestTarget.used) {
+            bestTarget.used = true;
+            usedCountRef.current++;
+          }
+          
+          const angle = Math.random() * Math.PI * 2;
+          const speed = Math.random() * 8 + 4; 
+          
+          liveParticles.current.push({
+            x: sx, y: sy,
+            vx: Math.cos(angle) * speed, 
+            vy: Math.sin(angle) * speed,
+            tx: bestTarget.x, ty: bestTarget.y,
+            size: bestTarget.size,
+            color: color
+          });
+        }
+      }
+    }
+  };
+
+  const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    let clientX, clientY;
+    if ('touches' in e) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    }
+    
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
+  const resetIdleTimer = () => {
+    if (idleTimeout.current) clearTimeout(idleTimeout.current);
+    idleTimeout.current = setTimeout(() => {
+      if (isDrawing.current && currentStroke.current.length > 0) {
+        const stroke = currentStroke.current;
+        for (let i = 1; i < stroke.length; i++) {
+          spawnParticlesBetween(stroke[i-1].x, stroke[i-1].y, stroke[i].x, stroke[i].y);
+        }
+        if (stroke.length === 1) spawnParticlesBetween(stroke[0].x, stroke[0].y, stroke[0].x, stroke[0].y);
+        
+        currentStroke.current = [stroke[stroke.length - 1]];
+        setForceRender(v => v + 1);
+      }
+    }, 1000); 
+  };
+
+  const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {
+    isDrawing.current = true;
+    const coords = getCoordinates(e);
+    if (coords) {
+      currentStroke.current = [coords];
+      lastPos.current = coords;
+      resetIdleTimer();
+    }
+  };
+
+  const handlePointerMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDrawing.current) return;
+    const coords = getCoordinates(e);
+    if (coords) {
+      currentStroke.current.push(coords);
+      lastPos.current = coords;
+      resetIdleTimer();
+      
+      if (currentStroke.current.length > 15) {
+        const p1 = currentStroke.current[0];
+        const p2 = currentStroke.current[1];
+        spawnParticlesBetween(p1.x, p1.y, p2.x, p2.y);
+        currentStroke.current.shift(); 
+      }
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (isDrawing.current) {
+      isDrawing.current = false;
+      lastPos.current = null;
+      if (idleTimeout.current) clearTimeout(idleTimeout.current);
+      
+      const stroke = currentStroke.current;
+      for (let i = 1; i < stroke.length; i++) {
+        spawnParticlesBetween(stroke[i-1].x, stroke[i-1].y, stroke[i].x, stroke[i].y);
+      }
+      if (stroke.length === 1) {
+        spawnParticlesBetween(stroke[0].x, stroke[0].y, stroke[0].x, stroke[0].y);
+      }
+      
+      currentStroke.current = [];
+      setForceRender(v => v + 1);
+    }
+  };
+
+  useEffect(() => {
+    let animationFrame: number;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const loop = () => {
+      ctx.fillStyle = '#121214'; 
+      ctx.fillRect(0, 0, width, height);
+      
+      const friction = 0.98; 
+      const spring = 0.0001; 
+
+      const particles = liveParticles.current;
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        
+        const dx = p.tx - p.x;
+        const dy = p.ty - p.y;
+        
+        p.vx += dx * spring;
+        p.vy += dy * spring;
+        
+        p.vx *= friction;
+        p.vy *= friction;
+        
+        const maxSpeed = 1.0; 
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        if (speed > maxSpeed) {
+           p.vx = (p.vx / speed) * maxSpeed;
+           p.vy = (p.vy / speed) * maxSpeed;
+        }
+        
+        p.x += p.vx;
+        p.y += p.vy;
+
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.floor(p.x), Math.floor(p.y), p.size, p.size);
+      }
+      
+      const stroke = currentStroke.current;
+      if (stroke.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(stroke[0].x, stroke[0].y);
+        for (let i = 1; i < stroke.length; i++) {
+          ctx.lineTo(stroke[i].x, stroke[i].y);
+        }
+        ctx.strokeStyle = activeTool === 'eraser' ? '#121214' : color;
+        ctx.lineWidth = brushSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      }
+      
+      animationFrame = requestAnimationFrame(loop);
+    };
+    
+    loop();
+    return () => cancelAnimationFrame(animationFrame);
+  }, [width, height, color, brushSize, activeTool]);
+
+  const presetColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ffffff', '#000000'];
+  const remaining = availableTargets.current.length - usedCountRef.current;
+  const isCanvasEmpty = liveParticles.current.length === 0 && currentStroke.current.length === 0;
+
+  return (
+    <div className="flex flex-row w-full h-full items-stretch bg-[#0a0a0a]">
+      
+      {/* Canvas Area (Padded inside the workspace) */}
+      <div className="flex-1 relative p-6 flex flex-col">
+        <div className="flex-1 relative border border-zinc-800 bg-[#121214] rounded-lg shadow-2xl overflow-hidden w-full h-full flex flex-col items-center justify-center">
+          {isCanvasEmpty && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none opacity-40">
+              <ImageIcon size={48} className="mb-4 text-zinc-500" />
+              <p className="text-zinc-500 text-sm font-medium">Draw something to begin morphing.</p>
+            </div>
+          )}
+          <canvas 
+            ref={canvasRef} 
+            width={width} 
+            height={height} 
+            className="block w-full h-full object-contain touch-none cursor-crosshair z-10"
+            onMouseDown={handlePointerDown}
+            onMouseMove={handlePointerMove}
+            onMouseUp={handlePointerUp}
+            onMouseOut={handlePointerUp}
+            onTouchStart={handlePointerDown}
+            onTouchMove={handlePointerMove}
+            onTouchEnd={handlePointerUp}
+            onTouchCancel={handlePointerUp}
+          />
+        </div>
+      </div>
+
+      {/* Right Dashboard Tool Panel */}
+      <div className="w-[280px] shrink-0 flex flex-col p-6 bg-[#141417] border-l border-zinc-800 h-full overflow-y-auto z-10">
+        
+        <div className="flex items-center gap-2 mb-6">
+          <Paintbrush size={14} className="text-zinc-400" />
+          <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Paint Tools</h3>
+        </div>
+
+        {/* Tool Selector */}
+        <div className="grid grid-cols-4 gap-2 mb-8">
+          <button onClick={() => setActiveTool('pen')} className={`flex items-center justify-center p-3 rounded-lg border transition-all ${activeTool === 'pen' ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]' : 'bg-[#1a1a1e] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}>
+            <Pen size={16} />
+          </button>
+          <button onClick={() => setActiveTool('eraser')} className={`flex items-center justify-center p-3 rounded-lg border transition-all ${activeTool === 'eraser' ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.3)]' : 'bg-[#1a1a1e] border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}>
+            <Eraser size={16} />
+          </button>
+          <button className="flex items-center justify-center p-3 rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-600 cursor-not-allowed">
+            <Minus size={16} />
+          </button>
+          <button className="flex items-center justify-center p-3 rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-600 cursor-not-allowed">
+            <MousePointer2 size={16} />
+          </button>
+        </div>
+
+        {/* Brush Size */}
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Brush Size</h3>
+            <div className="bg-[#1a1a1e] border border-zinc-800 text-zinc-300 text-[10px] px-2 py-1 rounded font-mono">
+              {brushSize} px
+            </div>
+          </div>
+          <input 
+            type="range" min="2" max="50" 
+            value={brushSize} 
+            onChange={e => setBrushSize(parseInt(e.target.value))} 
+            className="w-full accent-blue-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer" 
+          />
+        </div>
+
+        {/* Colors */}
+        <div className="mb-8">
+          <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-4">Color</h3>
+          <div className="grid grid-cols-4 gap-3 mb-4">
+            {presetColors.map(c => (
+              <button 
+                key={c}
+                onClick={() => setColor(c)}
+                className={`w-8 h-8 rounded-full border-2 transition-transform shadow-md mx-auto ${color === c ? 'scale-110 border-white ring-2 ring-blue-500/50' : 'border-zinc-700 hover:scale-105'}`}
+                style={{ backgroundColor: c }}
+                title={`Use color ${c}`}
+              />
+            ))}
+          </div>
+          <div className="flex items-center justify-between bg-[#1a1a1e] p-3 rounded-lg border border-zinc-800 transition-colors hover:border-zinc-700">
+            <span className="text-xs text-zinc-300 font-medium">Custom</span>
+            <input 
+              type="color" 
+              value={color} 
+              onChange={e => setColor(e.target.value)} 
+              className="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0" 
+            />
+          </div>
+        </div>
+
+        {/* Actions Row */}
+        <div className="grid grid-cols-3 gap-2 mb-8">
+          <button className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors">
+            <Undo2 size={14} />
+            <span className="text-[9px] font-bold">Undo</span>
+          </button>
+          <button className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors">
+            <Redo2 size={14} />
+            <span className="text-[9px] font-bold">Redo</span>
+          </button>
+          <button 
+            onClick={() => {
+              liveParticles.current = [];
+              availableTargets.current.forEach(t => t.used = false);
+              usedCountRef.current = 0;
+              currentStroke.current = [];
+              setForceRender(v => v + 1);
+            }}
+            className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg bg-[#1a1a1e] border border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-red-400 transition-colors"
+          >
+            <Trash2 size={14} />
+            <span className="text-[9px] font-bold">Clear</span>
+          </button>
+        </div>
+
+        <div className="h-px w-full bg-zinc-800 my-2"></div>
+        
+        {/* Footer Stats & Clear */}
+        <div className="mt-auto flex flex-col gap-4">
+          <div className="text-center">
+            <div className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider mb-1.5">Target Pixels Left</div>
+            <div className="text-lg font-mono text-zinc-200">{Math.max(0, remaining).toLocaleString()}</div>
+          </div>
+          
+          <button 
+            onClick={() => { 
+              liveParticles.current = []; 
+              availableTargets.current.forEach(t => t.used = false);
+              usedCountRef.current = 0;
+              currentStroke.current = [];
+              setForceRender(v => v + 1);
+            }} 
+            className="w-full py-3 bg-transparent hover:bg-red-500/10 text-red-400 text-xs font-bold rounded-lg border border-red-500/30 hover:border-red-500/60 transition-all flex items-center justify-center gap-2"
+          >
+            <Trash2 size={14} /> CLEAR CANVAS
+          </button>
+        </div>
+      </div>
+      
+    </div>
+  );
+};
